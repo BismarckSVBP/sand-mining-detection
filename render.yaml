@@ -1,0 +1,19 @@
+# render.yaml — deploy to Render.com free tier
+# 1. Push this repo to GitHub
+# 2. Go to https://dashboard.render.com → New → Blueprint
+# 3. Connect your GitHub repo — Render auto-detects this file
+# 4. Click Apply and wait ~5 min for the first build
+
+services:
+  - type: web
+    name: sand-mining-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free               # 512 MB RAM, 0.1 CPU — sufficient for demo
+    envVars:
+      - key: PYTHONPATH
+        value: /app
+      - key: PORT
+        value: 8000
+    healthCheckPath: /health
+    autoDeploy: true         # Redeploy on every git push

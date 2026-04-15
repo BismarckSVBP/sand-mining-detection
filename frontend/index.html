@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Illegal Sand Mining Detection — MMMUT G5</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* ── Reset & Variables ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --border:  #30363d;
+      --text:    #c9d1d9;
+      --muted:   #8b949e;
+      --accent:  #388bfd;
+      --green:   #2ea043;
+      --yellow:  #d29922;
+      --red:     #cf222e;
+      --purple:  #8957e5;
+      --radius:  8px;
+    }
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+
+    /* ── Layout ── */
+    .shell    { display: flex; flex-direction: column; height: 100vh; }
+    header    { padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    header span{ font-size: .8rem; color: var(--muted); }
+    .badge    { font-size:.7rem; padding:2px 8px; border-radius:12px; font-weight:600; }
+    .badge-blue{ background:#1f6feb33; color:#388bfd; border:1px solid #1f6feb; }
+
+    main      { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar ── */
+    aside {
+      width: 340px; flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .tabs { display:flex; border-bottom:1px solid var(--border); }
+    .tab  { flex:1; padding:10px; font-size:.8rem; font-weight:600; text-align:center;
+            cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; transition:.2s; }
+    .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+    .tab-body { flex:1; overflow-y:auto; padding:16px; }
+
+    /* ── Control form ── */
+    .field { margin-bottom: 14px; }
+    label  { display:block; font-size:.75rem; color:var(--muted); margin-bottom:4px; }
+    input, select {
+      width:100%; padding:8px 10px; font-size:.85rem;
+      background:#0d1117; border:1px solid var(--border); border-radius:var(--radius);
+      color:var(--text); outline:none;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    .btn {
+      width:100%; padding:10px; border:none; border-radius:var(--radius);
+      font-size:.9rem; font-weight:600; cursor:pointer; transition:.15s;
+    }
+    .btn-primary  { background:var(--accent);  color:#fff; }
+    .btn-primary:hover  { background:#58a6ff; }
+    .btn-demo     { background:#21262d; color:var(--text); border:1px solid var(--border); margin-top:8px; }
+    .btn-demo:hover { background:#30363d; }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    /* ── Stats cards ── */
+    .stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:16px 0; }
+    .card  {
+      background:#0d1117; border:1px solid var(--border);
+      border-radius:var(--radius); padding:12px;
+      text-align:center;
+    }
+    .card-val  { font-size:1.6rem; font-weight:700; }
+    .card-lbl  { font-size:.72rem; color:var(--muted); margin-top:2px; }
+
+    /* ── Site list ── */
+    .site-item {
+      background:#0d1117; border:1px solid var(--border);
+      border-radius:var(--radius); padding:10px 12px;
+      margin-bottom:8px; cursor:pointer; transition:.15s;
+    }
+    .site-item:hover { border-color:var(--accent); }
+    .site-header { display:flex; justify-content:space-between; align-items:center; }
+    .site-id   { font-size:.75rem; color:var(--muted); font-family:monospace; }
+    .site-body { margin-top:6px; font-size:.8rem; }
+    .sev { display:inline-block; padding:1px 7px; border-radius:10px; font-size:.7rem; font-weight:700; }
+    .sev-LOW      { background:#2ea04322; color:#2ea043; border:1px solid #2ea04355; }
+    .sev-MEDIUM   { background:#d2992222; color:#d29922; border:1px solid #d2992255; }
+    .sev-HIGH     { background:#cf222e22; color:#cf222e; border:1px solid #cf222e55; }
+    .sev-CRITICAL { background:#8957e522; color:#8957e5; border:1px solid #8957e555; }
+
+    /* ── Status bar ── */
+    #status-bar {
+      padding:8px 16px; font-size:.78rem; background:#0d1117;
+      border-top:1px solid var(--border); color:var(--muted);
+      display:flex; align-items:center; gap:8px;
+    }
+    .spinner {
+      width:14px;height:14px;border:2px solid var(--border);
+      border-top-color:var(--accent);border-radius:50%;
+      animation:spin .7s linear infinite;display:none;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* ── Map ── */
+    #map { flex:1; }
+
+    /* ── Popup ── */
+    .leaflet-popup-content-wrapper {
+      background:var(--surface) !important; border:1px solid var(--border) !important;
+      color:var(--text) !important; border-radius:var(--radius) !important; box-shadow:none !important;
+    }
+    .leaflet-popup-tip { background:var(--surface) !important; }
+    .popup h3 { font-size:.9rem; margin-bottom:8px; }
+    .popup table { width:100%; font-size:.78rem; border-collapse:collapse; }
+    .popup td { padding:3px 6px; }
+    .popup tr:nth-child(even) td { background:#0d111777; }
+    .popup td:first-child { color:var(--muted); }
+
+    /* ── Toast ── */
+    #toast {
+      position:fixed; bottom:24px; right:24px;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--radius); padding:12px 18px;
+      font-size:.85rem; max-width:320px;
+      box-shadow:0 4px 24px #00000088;
+      transform:translateY(80px); opacity:0; transition:.3s;
+      pointer-events:none; z-index:9999;
+    }
+    #toast.show { transform:none; opacity:1; }
+    #toast.err  { border-color:#cf222e; color:#cf222e; }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Header -->
+  <header>
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+      <circle cx="14" cy="14" r="13" stroke="#388bfd" stroke-width="1.5"/>
+      <path d="M7 18 Q14 8 21 18" stroke="#388bfd" stroke-width="2" fill="none"/>
+      <circle cx="14" cy="14" r="3" fill="#388bfd"/>
+    </svg>
+    <h1>Sand Mining Detection</h1>
+    <span>Satellite · Deep Learning · Real-time Alerts</span>
+    <span class="badge badge-blue">G5 · MMMUT Gorakhpur</span>
+    <span id="api-status" style="margin-left:auto;font-size:.75rem;color:var(--muted)">Connecting…</span>
+  </header>
+
+  <main>
+    <!-- Sidebar -->
+    <aside>
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('detect')">🛰️ Detect</div>
+        <div class="tab" onclick="switchTab('results')">📊 Results</div>
+        <div class="tab" onclick="switchTab('sites')">📍 Sites</div>
+      </div>
+
+      <!-- Detect tab -->
+      <div class="tab-body" id="tab-detect">
+        <div class="field">
+          <label>River / Region</label>
+          <select id="preset" onchange="applyPreset()">
+            <option value="">Custom</option>
+            <option value="ghaghra" selected>Ghaghra River, UP</option>
+            <option value="rapti">Rapti River, UP/Bihar</option>
+            <option value="gandak">Gandak River, Bihar</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Bounding Box (lon_min, lat_min, lon_max, lat_max)</label>
+          <input id="bbox" value="83.2,26.5,83.6,26.9" placeholder="83.2,26.5,83.6,26.9" />
+        </div>
+        <div class="field">
+          <label>Date From</label>
+          <input type="date" id="date-start" value="2024-01-01" />
+        </div>
+        <div class="field">
+          <label>Date To</label>
+          <input type="date" id="date-end" value="2024-01-31" />
+        </div>
+        <div class="field">
+          <label>Data Source</label>
+          <select id="source">
+            <option value="demo" selected>Demo (synthetic — no account needed)</option>
+            <option value="aws">AWS Open Data (real Sentinel-2, no key)</option>
+            <option value="gee">Google Earth Engine (requires auth)</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="run-btn" onclick="runDetection()">
+          🔍 Run Detection
+        </button>
+        <button class="btn btn-demo" onclick="runDemo()">⚡ Quick Demo</button>
+
+        <div id="summary-cards" style="display:none">
+          <div class="stats">
+            <div class="card">
+              <div class="card-val" id="stat-sites">—</div>
+              <div class="card-lbl">Sites Detected</div>
+            </div>
+            <div class="card">
+              <div class="card-val" id="stat-area">—</div>
+              <div class="card-lbl">Area (ha)</div>
+            </div>
+            <div class="card" style="grid-column:1/-1">
+              <div class="card-val" id="stat-crit" style="color:var(--purple)">—</div>
+              <div class="card-lbl">Critical / High alerts</div>
+            </div>
+          </div>
+          <canvas id="sev-chart" height="140"></canvas>
+        </div>
+      </div>
+
+      <!-- Results tab -->
+      <div class="tab-body" id="tab-results" style="display:none">
+        <p style="font-size:.8rem;color:var(--muted);margin-bottom:12px">
+          Past alert reports from this session
+        </p>
+        <div id="alert-list"><em style="color:var(--muted);font-size:.8rem">Run a detection first.</em></div>
+      </div>
+
+      <!-- Sites tab -->
+      <div class="tab-body" id="tab-sites" style="display:none">
+        <p style="font-size:.8rem;color:var(--muted);margin-bottom:12px">
+          All sites from database
+        </p>
+        <button class="btn btn-demo" onclick="loadSites()" style="margin-bottom:12px">🔄 Refresh</button>
+        <div id="site-list"><em style="color:var(--muted);font-size:.8rem">Click Refresh to load.</em></div>
+      </div>
+    </aside>
+
+    <!-- Map -->
+    <div id="map"></div>
+  </main>
+
+  <!-- Status bar -->
+  <div id="status-bar">
+    <div class="spinner" id="spinner"></div>
+    <span id="status-msg">Ready — select a river and click Run Detection</span>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const API = '';  // relative — same origin
+
+const PRESETS = {
+  ghaghra: { bbox: '83.2,26.5,83.6,26.9', label: 'Ghaghra River, UP' },
+  rapti:   { bbox: '83.0,27.0,83.8,27.6', label: 'Rapti River, UP/Bihar' },
+  gandak:  { bbox: '84.0,25.8,84.8,26.5', label: 'Gandak River, Bihar' },
+};
+
+const SEV_COLOUR = {
+  LOW: '#2ea043', MEDIUM: '#d29922', HIGH: '#cf222e', CRITICAL: '#8957e5'
+};
+
+// ── Map init ─────────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true }).setView([26.7, 83.4], 9);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors',
+  maxZoom: 18,
+}).addTo(map);
+
+// Optional: Satellite tiles (Esri)
+const esri = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  { attribution: 'Esri World Imagery', maxZoom: 18 }
+);
+
+let baseLayers = { 'OpenStreetMap': map._layers[Object.keys(map._layers)[0]], 'Satellite (Esri)': esri };
+L.control.layers(baseLayers).addTo(map);
+
+let detectionLayer = L.layerGroup().addTo(map);
+
+// ── API health check ─────────────────────────────────────────────────────────
+async function checkHealth() {
+  try {
+    const r = await fetch(`${API}/health`);
+    if (r.ok) setApiStatus('🟢 API Online', '#2ea043');
+    else      setApiStatus('🔴 API Error', '#cf222e');
+  } catch {
+    setApiStatus('🔴 API Offline', '#cf222e');
+  }
+}
+function setApiStatus(msg, color) {
+  const el = document.getElementById('api-status');
+  el.textContent = msg; el.style.color = color;
+}
+checkHealth();
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(name) {
+  ['detect','results','sites'].forEach(t => {
+    document.getElementById(`tab-${t}`).style.display = t === name ? '' : 'none';
+    document.querySelectorAll('.tab')[['detect','results','sites'].indexOf(t)]
+      .classList.toggle('active', t === name);
+  });
+}
+
+// ── Preset handling ───────────────────────────────────────────────────────────
+function applyPreset() {
+  const v = document.getElementById('preset').value;
+  if (v && PRESETS[v]) document.getElementById('bbox').value = PRESETS[v].bbox;
+}
+
+// ── Detection ─────────────────────────────────────────────────────────────────
+async function runDetection() {
+  const bbox   = document.getElementById('bbox').value.split(',').map(Number);
+  const ds     = document.getElementById('date-start').value;
+  const de     = document.getElementById('date-end').value;
+  const source = document.getElementById('source').value;
+
+  if (bbox.length !== 4 || bbox.some(isNaN)) {
+    return toast('Invalid bounding box — enter 4 comma-separated numbers', true);
+  }
+
+  setLoading(true, 'Acquiring satellite imagery and running detection…');
+
+  try {
+    const resp = await fetch(`${API}/api/detect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bbox, date_start: ds, date_end: de, source }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+    const report = await resp.json();
+    displayReport(report, bbox);
+  } catch (e) {
+    toast(`Detection failed: ${e.message}`, true);
+    setLoading(false, 'Detection failed');
+  }
+}
+
+async function runDemo() {
+  setLoading(true, 'Running demo detection on synthetic Ghaghra river scene…');
+  try {
+    const resp = await fetch(`${API}/api/demo`);
+    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+    const report = await resp.json();
+    displayReport(report, [83.2, 26.5, 83.6, 26.9]);
+  } catch (e) {
+    toast(`Demo failed: ${e.message}`, true);
+    setLoading(false, 'Demo failed');
+  }
+}
+
+// ── Display results ───────────────────────────────────────────────────────────
+function displayReport(report, bbox) {
+  const s = report.summary;
+  setLoading(false,
+    `Detection complete: ${s.total_sites_detected} site(s) found — ${report.report_id}`
+  );
+  toast(`Found ${s.total_sites_detected} site(s) | ${s.total_area_ha} ha affected`);
+
+  // Stats cards
+  document.getElementById('summary-cards').style.display = '';
+  document.getElementById('stat-sites').textContent = s.total_sites_detected;
+  document.getElementById('stat-area').textContent  = s.total_area_ha;
+  document.getElementById('stat-crit').textContent  =
+    s.by_severity.CRITICAL + ' / ' + s.by_severity.HIGH;
+
+  drawSevChart(s.by_severity);
+
+  // Map
+  detectionLayer.clearLayers();
+  const geojson = report.geojson;
+  if (geojson && geojson.features.length) {
+    const layer = L.geoJSON(geojson, {
+      style: f => ({
+        color:       f.properties.color,
+        fillColor:   f.properties.color,
+        weight:      2,
+        fillOpacity: 0.35,
+      }),
+      onEachFeature: (f, layer) => {
+        layer.bindPopup(buildPopup(f.properties), { maxWidth: 300 });
+        layer.on('click', () => panTo(f.properties.lat, f.properties.lon));
+      },
+    }).addTo(detectionLayer);
+    map.fitBounds(layer.getBounds().pad(0.1));
+  } else {
+    // No detections — just pan to area
+    map.fitBounds([[bbox[1], bbox[0]], [bbox[3], bbox[2]]]);
+  }
+
+  // Results tab list
+  const listEl = document.getElementById('alert-list');
+  const card = document.createElement('div');
+  card.className = 'site-item';
+  card.innerHTML = `
+    <div class="site-header">
+      <span style="font-size:.85rem;font-weight:600">${report.report_id}</span>
+      <span class="sev sev-${s.by_severity.CRITICAL > 0 ? 'CRITICAL' : s.by_severity.HIGH > 0 ? 'HIGH' : 'LOW'}">
+        ${s.total_sites_detected} sites
+      </span>
+    </div>
+    <div class="site-body" style="color:var(--muted)">
+      ${report.generated_at.slice(0,19).replace('T',' ')} · ${s.total_area_ha} ha
+    </div>`;
+  listEl.prepend(card);
+
+  switchTab('detect');
+}
+
+function buildPopup(p) {
+  return `<div class="popup">
+    <h3>⚠️ Mining Site</h3>
+    <table>
+      <tr><td>Severity</td><td><span class="sev sev-${p.severity}">${p.severity}</span></td></tr>
+      <tr><td>Status</td><td>${p.status}</td></tr>
+      <tr><td>Area</td><td>${p.area_m2.toLocaleString()} m² (${p.area_ha} ha)</td></tr>
+      <tr><td>Confidence</td><td>${(p.confidence * 100).toFixed(1)}%</td></tr>
+      <tr><td>MCI</td><td>${p.mci}</td></tr>
+      <tr><td>Periods</td><td>${p.consecutive_periods}</td></tr>
+      <tr><td>Detected</td><td>${p.date_detected}</td></tr>
+      <tr><td>Lat / Lon</td><td>${p.lat}, ${p.lon}</td></tr>
+    </table>
+  </div>`;
+}
+
+function panTo(lat, lon) {
+  map.setView([lat, lon], 13);
+}
+
+// ── Severity chart ────────────────────────────────────────────────────────────
+let sevChart = null;
+function drawSevChart(bySev) {
+  const ctx = document.getElementById('sev-chart').getContext('2d');
+  if (sevChart) sevChart.destroy();
+  sevChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['LOW','MEDIUM','HIGH','CRITICAL'],
+      datasets: [{
+        data: [bySev.LOW, bySev.MEDIUM, bySev.HIGH, bySev.CRITICAL],
+        backgroundColor: ['#2ea04388','#d2992288','#cf222e88','#8957e588'],
+        borderColor:     ['#2ea043','#d29922','#cf222e','#8957e5'],
+        borderWidth: 2,
+      }],
+    },
+    options: {
+      plugins: {
+        legend: { labels: { color: '#c9d1d9', font: { size: 11 } } },
+      },
+    },
+  });
+}
+
+// ── Load all sites ────────────────────────────────────────────────────────────
+async function loadSites() {
+  setStatus('Loading sites…');
+  try {
+    const resp = await fetch(`${API}/api/sites`);
+    const data = await resp.json();
+    const el = document.getElementById('site-list');
+    el.innerHTML = '';
+    if (!data.sites.length) {
+      el.innerHTML = '<em style="color:var(--muted);font-size:.8rem">No sites in database yet.</em>';
+      return;
+    }
+    data.sites.forEach(site => {
+      const d = document.createElement('div');
+      d.className = 'site-item';
+      d.innerHTML = `
+        <div class="site-header">
+          <span class="site-id">${site.site_id}</span>
+          <span class="sev sev-${site.severity}">${site.severity}</span>
+        </div>
+        <div class="site-body">
+          ${site.area_m2.toLocaleString()} m² · ${site.status}<br>
+          <span style="color:var(--muted)">${site.date_detected} · Lat ${site.lat}, Lon ${site.lon}</span>
+        </div>`;
+      d.onclick = () => { map.setView([site.lat, site.lon], 12); switchTab('detect'); };
+      el.appendChild(d);
+    });
+    setStatus(`Loaded ${data.sites.length} site(s) from database`);
+  } catch (e) {
+    toast('Failed to load sites', true);
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function setLoading(loading, msg) {
+  document.getElementById('spinner').style.display = loading ? 'block' : 'none';
+  document.getElementById('run-btn').disabled = loading;
+  setStatus(msg);
+}
+function setStatus(msg) {
+  document.getElementById('status-msg').textContent = msg;
+}
+
+let toastTimer;
+function toast(msg, err = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (err ? ' err' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = '', 4000);
+}
+</script>
+</body>
+</html>
